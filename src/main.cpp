@@ -11,7 +11,7 @@
 #include "storage.h"
 
 
-const uint8_t garageOpenerPin = 14;
+const uint8_t lightPin = 14;
 
 
 const char *WiFiSSID = SECRET_WIFI_SSID;
@@ -35,10 +35,17 @@ void packetReceived(uint8_t* data, uint32_t dataLength){
     Serial.print("NetClient recieved:");
     Serial.println(String(data, dataLength));
     switch (data[0]){
+        case 0:
+            storageData.lightMode=0;
+            commitStorage(storageData);
+        break;
         case 1:
-            digitalWrite(garageOpenerPin, HIGH);
-            delay(250);
-            digitalWrite(garageOpenerPin, LOW);
+            storageData.lightMode=1;
+            commitStorage(storageData);
+        break;
+        case 2:
+            storageData.lightMode=2;
+            commitStorage(storageData);
         break;
     }
 }
@@ -64,11 +71,16 @@ void setup(){
 
     //Setup non volatile storage
     StorageData defaultStorage;
+    defaultStorage.autoStartHours=20;
+    defaultStorage.autoStartMinutes=0;
+    defaultStorage.autoEndHours=22;
+    defaultStorage.autoEndMinutes=0;
+    defaultStorage.lightMode=2;
     initStorage(&defaultStorage, storageData);
 
     //Setup IO
-    pinMode(garageOpenerPin, OUTPUT);
-    digitalWrite(garageOpenerPin, LOW);
+    pinMode(lightPin, OUTPUT);
+    digitalWrite(lightPin, LOW);
 
     //Setup WiFi
     WiFi.setMinSecurity(WIFI_AUTH_OPEN);
@@ -86,6 +98,39 @@ void setup(){
 }
 
 
+bool isInTimeWindow(int currentHour, int currentMinute, int startHour, int startMinute, int endHour, int endMinute){
+    float start=(float)startHour+((float)startMinute/60.0f);
+    float end=(float)endHour+((float)endMinute/60.0f);
+    float current=(float)currentHour+((float)currentMinute/60.0f);
+
+    if (start<end){
+        if (current>=start && current<end) return true;
+        return false;
+    }
+    if (end<start){
+        if (current>=start) return true;
+        if (current<end) return true;
+        return false;
+    }
+    return false;
+}
+
+void updateLightMode(){
+    if (storageData.lightMode==0){
+        digitalWrite(lightPin, LOW);
+    }else if (storageData.lightMode==1){
+        digitalWrite(lightPin, HIGH);
+    }else{
+        struct tm timeinfo;
+        if(!getLocalTime(&timeinfo, 0)){
+            digitalWrite(lightPin, LOW);
+        }else{
+            bool autoModeStatus=isInTimeWindow(timeinfo.tm_hour, timeinfo.tm_min, storageData.autoStartHours, storageData.autoStartMinutes, storageData.autoEndHours, storageData.autoEndMinutes);
+            digitalWrite(lightPin, autoModeStatus);
+        }
+    }
+}
+
 void loop(){
     static uint32_t lastConnectTime=0;
     static uint8_t failReconnects=0;
@@ -93,6 +138,7 @@ void loop(){
     static uint32_t lastCameraTime=0;
     static uint32_t lastReadyTime=0;
 
+    static uint32_t lastUpdateLight=0;
 
     uint32_t currentTime = millis();
 
@@ -113,6 +159,11 @@ void loop(){
     }else{
         failReconnects=0;
     }
+
+    if (isTimeToExecute(lastUpdateLight, 100)){
+        updateLightMode();
+    }
+    
 
     if (NetClient.loop()){
         lastReadyTime=currentTime;
