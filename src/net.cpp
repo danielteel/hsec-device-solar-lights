@@ -10,7 +10,7 @@ Net::Net(String deviceName, String encroKeyString, String address, uint16_t port
     this->hostAddress=address;
     this->port=port;
 
-    buildKey(encroKeyString.c_str(), encroKey);
+    buildKeyFromString(encroKeyString.c_str(), encroKey);
 }
 
 Net::~Net(){
