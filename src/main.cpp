@@ -32,26 +32,25 @@ Net NetClient(SECRET_DEVICE_NAME, SECRET_ENCROKEY, SECRET_HOST_ADDRESS, SECRET_H
 
 
 void packetReceived(uint8_t* data, uint32_t dataLength){
-    Serial.print("NetClient recieved:");
-    Serial.println(String(data, dataLength));
     switch (data[0]){
         case 0:
             storageData.lightMode=0;
             commitStorage(storageData);
-        break;
+            break;
         case 1:
             storageData.lightMode=1;
             commitStorage(storageData);
-        break;
+            break;
         case 2:
             storageData.lightMode=2;
             commitStorage(storageData);
-        break;
+            break;
     }
 }
 
 void onConnected(){
     Serial.println("NetClient Connected");
+    NetClient.sendString("i=Lights Off:void:0,Lights On:void:1,Auto:void:2");
 }
 
 void onDisconnected(){
