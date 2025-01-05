@@ -24,16 +24,19 @@ void initConfig(camera_config_t& c){
     c.pin_pwdn = PWDN_GPIO_NUM;
     c.pin_reset = RESET_GPIO_NUM;
     c.xclk_freq_hz = 16500000;
-    c.frame_size = FRAMESIZE_HVGA;//FRAMESIZE_VGA;
+    c.frame_size = FRAMESIZE_HVGA;
     c.pixel_format = PIXFORMAT_JPEG; // for streaming
     c.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
     c.fb_location = CAMERA_FB_IN_PSRAM;
-    c.jpeg_quality = 7;
+    c.jpeg_quality = 16;
     c.fb_count = 1;
 }
 
-void cameraSetup(){
+void cameraSetup(framesize_t framesize=FRAMESIZE_HVGA, int quality=16){
     initConfig(cameraConfig);
+    cameraConfig.frame_size=framesize;
+    cameraConfig.jpeg_quality=quality;
+    
     esp_err_t err = esp_camera_init(&cameraConfig);
     if (err != ESP_OK) {
         Serial.printf("Camera init failed with error 0x%x", err);
