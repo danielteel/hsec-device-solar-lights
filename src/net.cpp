@@ -74,7 +74,11 @@ void Net::setOnDisconnected(void (*callback)(void)){
 }
 
 bool Net::sendString(String str){
-    return sendPacket((uint8_t*)str.c_str(), str.length());
+    if (str){
+        return sendPacket((uint8_t*)str.c_str(), str.length());
+    }else{
+        return false;
+    }
 }
 
 bool Net::sendBinary(uint8_t* data, uint32_t dataLength){

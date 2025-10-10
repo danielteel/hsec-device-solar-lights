@@ -20,7 +20,10 @@ DHTesp dht;
 const char *WiFiSSID = SECRET_WIFI_SSID;
 const char *WiFiPass = SECRET_WIFI_PASS;
 
-const uint32_t sendPeriod = 1500;//How often a thing should be sent, and then the state machine advanced
+const uint32_t picturePeriod = 2000;
+const uint32_t weatherPeriod = 2000;
+const uint32_t logPeriod = 120000;
+
 const uint32_t howLongBeforeRestartIfNotConnecting = 300000;//restart esp32 if havent been able to connect to server for 5 minutes
 
 
@@ -52,36 +55,29 @@ void packetReceived(uint8_t* data, uint32_t dataLength){
             break;
         case 3:
             storageData.autoStartHours=data[1];
+            storageData.autoStartMinutes=data[2];
             if (storageData.autoStartHours>23) storageData.autoStartHours=23;
             if (storageData.autoStartHours<0) storageData.autoStartHours=0;
-            commitStorage(storageData);
-            break;
-        case 4:
-            storageData.autoStartMinutes=data[1];
             if (storageData.autoStartMinutes>59) storageData.autoStartMinutes=59;
             if (storageData.autoStartMinutes<0) storageData.autoStartMinutes=0;
             commitStorage(storageData);
             break;
-        case 5:
+        case 4:
             storageData.autoEndHours=data[1];
+            storageData.autoEndMinutes=data[2];
             if (storageData.autoEndHours>23) storageData.autoEndHours=23;
             if (storageData.autoEndHours<0) storageData.autoEndHours=0;
-            commitStorage(storageData);
-            break;
-        case 6:
-            storageData.autoEndMinutes=data[1];
             if (storageData.autoEndMinutes>59) storageData.autoEndMinutes=59;
             if (storageData.autoEndMinutes<0) storageData.autoEndMinutes=0;
             commitStorage(storageData);
             break;
-            
-        case 7:
+        case 5:
             s = esp_camera_sensor_get();
             if (s) s->set_quality(s, data[1]);
             storageData.quality=data[1];
             commitStorage(storageData);
             break;
-        case 8:
+        case 6:
             s = esp_camera_sensor_get();
             if (s) s->set_framesize(s, (framesize_t)data[1]);
             storageData.frame_size=(framesize_t)data[1];
@@ -92,7 +88,6 @@ void packetReceived(uint8_t* data, uint32_t dataLength){
 
 void onConnected(){
     Serial.println("NetClient Connected");
-    NetClient.sendString("i=Lights Off:void:0,Lights On:void:1,Auto:void:2,Start Hour:byte:3,Start Minute:byte:4,End Hour:byte:5,End Minute:byte:6,Qual(8best-63worst):byte:7,FrameSize(3|5|7):byte:8");
 }
 
 void onDisconnected(){
@@ -202,31 +197,14 @@ void updateLightMode(){
 }
 
 
-class StateMachine {
-    public:
-        StateMachine(uint8_t max){
-            maxStates=max;
-        }
-
-        uint8_t maxStates=0;
-        uint8_t state=0;
-
-        void next(){
-            state++;
-            if (state>=maxStates){
-                state=0;
-            }
-        }
-};
-
 void loop(){
-    static StateMachine sendState(2);
-
     static uint32_t lastConnectTime=0;
     static uint8_t failReconnects=0;
 
-    static uint32_t lastSendTime=0;
     static uint32_t lastReadyTime=0;
+    static uint32_t lastPictureSendTime=0;
+    static uint32_t lastWeatherSendTime=0;
+    static uint32_t lastLogTime=0;
 
     static uint32_t lastUpdateLight=0;
 
@@ -247,26 +225,23 @@ void loop(){
         if (NetClient.loop()){
             lastReadyTime=currentTime;
 
-            if (isTimeToExecute(lastSendTime, sendPeriod)){
-                switch (sendState.state){
-                    case 0:
-                        CAMERA_CAPTURE capture;
-                        if (cameraCapture(capture)){
-                            NetClient.sendBinary(capture.jpgBuff, capture.jpgBuffLen);
-                            cameraCaptureCleanup(capture);
-                        }else{
-                            Serial.println("failed to capture ");
-                        }
-                        break;
-
-                    case 1:
-                        float humidity = dht.getHumidity();
-                        float temperature = dht.getTemperature();
-                        String weather=String("w=humidity:")+String(humidity)+String(",temperature:")+String(temperature);
-                        NetClient.sendString(weather);
-                        break;
+            if (isTimeToExecute(lastPictureSendTime, picturePeriod)){
+                CAMERA_CAPTURE capture;
+                if (cameraCapture(capture)){
+                    NetClient.sendBinary(capture.jpgBuff, capture.jpgBuffLen);
+                    cameraCaptureCleanup(capture);
+                }else{
+                    Serial.println("failed to capture ");
                 }
-                sendState.next();
+            }
+            if (isTimeToExecute(lastWeatherSendTime, weatherPeriod)){
+                float humidity = dht.getHumidity();
+                float temperature = dht.getTemperature();
+                NetClient.sendString(String("humidity=")+String(humidity, 1));
+                NetClient.sendString(String("temperature=")+String(temperature, 1));
+            }
+            if (isTimeToExecute(lastLogTime, logPeriod)){
+                NetClient.sendString("log");
             }
         }
     }
