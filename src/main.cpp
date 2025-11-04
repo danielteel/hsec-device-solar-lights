@@ -40,47 +40,65 @@ Net NetClient(SECRET_DEVICE_NAME, SECRET_ENCROKEY, SECRET_HOST_ADDRESS, SECRET_H
 
 void packetReceived(uint8_t* data, uint32_t dataLength){
     sensor_t * s;
+    int32_t* numValue=(int32_t*)(data+1);
+
+    uint8_t* hours=data+1;
+    uint8_t* minutes=data+2;
+
+
     switch (data[0]){
         case 0:
             storageData.lightMode=0;
             commitStorage(storageData);
+            NetClient.sendString(String("lightMode=")+String(storageData.lightMode));
             break;
         case 1:
             storageData.lightMode=1;
             commitStorage(storageData);
+            NetClient.sendString(String("lightMode=")+String(storageData.lightMode));
             break;
         case 2:
             storageData.lightMode=2;
             commitStorage(storageData);
+            NetClient.sendString(String("lightMode=")+String(storageData.lightMode));
             break;
         case 3:
-            storageData.autoStartHours=data[1];
-            storageData.autoStartMinutes=data[2];
+            storageData.autoStartHours=*hours;
+            storageData.autoStartMinutes=*minutes;
             if (storageData.autoStartHours>23) storageData.autoStartHours=23;
             if (storageData.autoStartHours<0) storageData.autoStartHours=0;
             if (storageData.autoStartMinutes>59) storageData.autoStartMinutes=59;
             if (storageData.autoStartMinutes<0) storageData.autoStartMinutes=0;
             commitStorage(storageData);
+            NetClient.sendString(String("onTime=")+String(storageData.autoStartHours)+String(":")+String(storageData.autoStartMinutes));
             break;
         case 4:
-            storageData.autoEndHours=data[1];
-            storageData.autoEndMinutes=data[2];
+            storageData.autoEndHours=*hours;
+            storageData.autoEndMinutes=*minutes;
             if (storageData.autoEndHours>23) storageData.autoEndHours=23;
             if (storageData.autoEndHours<0) storageData.autoEndHours=0;
             if (storageData.autoEndMinutes>59) storageData.autoEndMinutes=59;
             if (storageData.autoEndMinutes<0) storageData.autoEndMinutes=0;
             commitStorage(storageData);
+            NetClient.sendString(String("offTime=")+String(storageData.autoEndHours)+String(":")+String(storageData.autoEndMinutes));
             break;
         case 5:
-            s = esp_camera_sensor_get();
-            if (s) s->set_quality(s, data[1]);
-            storageData.quality=data[1];
+            storageData.lightMode=(int8_t)*numValue;
+            if (storageData.lightMode<0) storageData.lightMode=0;
+            if (storageData.lightMode>2) storageData.lightMode=2;
             commitStorage(storageData);
+            NetClient.sendString(String("lightMode=")+String(storageData.lightMode));
             break;
         case 6:
             s = esp_camera_sensor_get();
-            if (s) s->set_framesize(s, (framesize_t)data[1]);
-            storageData.frame_size=(framesize_t)data[1];
+            if (s) s->set_quality(s, *numValue);
+            storageData.quality=*numValue;
+            commitStorage(storageData);
+            break;
+        case 7:
+            s = esp_camera_sensor_get();
+            if (s) s->set_framesize(s, (framesize_t)*numValue);
+            storageData.frame_size=(framesize_t)*numValue;
             commitStorage(storageData);
             break;
     }
@@ -88,6 +106,9 @@ void packetReceived(uint8_t* data, uint32_t dataLength){
 
 void onConnected(){
     Serial.println("NetClient Connected");
+    NetClient.sendString(String("lightMode=")+String(storageData.lightMode));
+    NetClient.sendString(String("onTime=")+String(storageData.autoStartHours)+String(":")+String(storageData.autoStartMinutes));
+    NetClient.sendString(String("offTime=")+String(storageData.autoEndHours)+String(":")+String(storageData.autoEndMinutes));
 }
 
 void onDisconnected(){
@@ -236,9 +257,15 @@ void loop(){
             }
             if (isTimeToExecute(lastWeatherSendTime, weatherPeriod)){
                 float humidity = dht.getHumidity();
-                float temperature = dht.getTemperature();
+                float temperature = dht.getTemperature()*1.8f+32.0f;
                 NetClient.sendString(String("humidity=")+String(humidity, 1));
                 NetClient.sendString(String("temperature=")+String(temperature, 1));
+
+                struct tm timeinfo;
+                if(getLocalTime(&timeinfo, 0)){
+                    NetClient.sendString(String("currentTime=")+String(timeinfo.tm_hour)+String(":")+String(timeinfo.tm_min)+":"+String(timeinfo.tm_sec));
+                }
+                
             }
             if (isTimeToExecute(lastLogTime, logPeriod)){
                 NetClient.sendString("log");
