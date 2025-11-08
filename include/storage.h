@@ -1,14 +1,11 @@
 #pragma once
 #include <stdint.h>
 #include "esp_camera.h"
+#include "utils.h"
 
 typedef struct {
-    uint8_t autoStartHours;
-    uint8_t autoStartMinutes;
-    uint8_t autoStartSeconds;
-    uint8_t autoEndHours;
-    uint8_t autoEndMinutes;
-    uint8_t autoEndSeconds;
+    DanTime autoStartTime;
+    DanTime autoEndTime;
     uint8_t lightMode;
     
     framesize_t frame_size;

@@ -41,21 +41,6 @@ StorageData storageData;
 Net NetClient(SECRET_DEVICE_NAME, SECRET_ENCROKEY, SECRET_HOST_ADDRESS, SECRET_HOST_PORT);
 
 
-bool isInTimeWindow(uint8_t currentHour, uint8_t currentMinute, uint8_t currentSecond, uint8_t startHour, uint8_t startMinute, uint8_t startSecond, uint8_t endHour, uint8_t endMinute, uint8_t endSecond){
-    float start=(float)startHour+((float)startMinute/60.0f)+((float)startSecond/3600.0f);
-    float end=(float)endHour+((float)endMinute/60.0f)+((float)endSecond/3600.0f);
-    float current=(float)currentHour+((float)currentMinute/60.0f)+((float)currentSecond/3600.0f);
-
-    if (start<end){
-        if (current>=start && current<end) return true;
-    }
-    if (end<start){
-        if (current>=start) return true;
-        if (current<end) return true;
-    }
-    return false;
-}
-
 void updateLightMode(bool forceSend){
     if (storageData.lightMode==0){
         digitalWrite(lightPin, LOW);
@@ -69,9 +54,9 @@ void updateLightMode(bool forceSend){
             digitalWrite(lightPin, LOW);
             isLightOn=false;
         }else{
-            bool autoModeStatus=isInTimeWindow( timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec, 
-                storageData.autoStartHours, storageData.autoStartMinutes, storageData.autoStartSeconds,
-                storageData.autoEndHours, storageData.autoEndMinutes, storageData.autoEndSeconds );
+            DanTime currentTime={timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec};
+            bool autoModeStatus=isInTimeWindow( &currentTime, &storageData.autoStartTime, &storageData.autoEndTime );
+        
             digitalWrite(lightPin, autoModeStatus);
             isLightOn=autoModeStatus;
         }
@@ -87,10 +72,7 @@ void packetReceived(uint8_t* data, uint32_t dataLength){
     sensor_t * s;
     int32_t* numValue=(int32_t*)(data+1);
 
-    uint8_t* hours=data+1;
-    uint8_t* minutes=data+2;
-    uint8_t* seconds=data+3;
-
+    DanTime* time=(DanTime*)(data+1);
 
     switch (data[0]){
         case 0:
@@ -112,33 +94,23 @@ void packetReceived(uint8_t* data, uint32_t dataLength){
             updateLightMode(false);
             break;
         case 3:
-            storageData.autoStartHours=*hours;
-            storageData.autoStartMinutes=*minutes;
-            storageData.autoStartSeconds=*seconds;
-            if (storageData.autoStartHours>23) storageData.autoStartHours=23;
-            if (storageData.autoStartMinutes>59) storageData.autoStartMinutes=59;
-            if (storageData.autoStartSeconds>59) storageData.autoStartSeconds=59;
+            storageData.autoStartTime=*time;
+            if (storageData.autoStartTime.hours>23) storageData.autoStartTime.hours=23;
+            if (storageData.autoStartTime.minutes>59) storageData.autoStartTime.minutes=59;
+            if (storageData.autoStartTime.seconds>59) storageData.autoStartTime.seconds=59;
+            
             commitStorage(storageData);
-            NetClient.sendString(String("onTime=")+String(storageData.autoStartHours)+String(":")+String(storageData.autoStartMinutes)+String(":")+String(storageData.autoStartSeconds));
+            NetClient.sendString(String("onTime=")+String(storageData.autoStartTime.hours)+String(":")+String(storageData.autoStartTime.minutes)+String(":")+String(storageData.autoStartTime.seconds));
             updateLightMode(false);
             break;
         case 4:
-            storageData.autoEndHours=*hours;
-            storageData.autoEndMinutes=*minutes;
-            storageData.autoEndSeconds=*seconds;
-            if (storageData.autoEndHours>23) storageData.autoEndHours=23;
-            if (storageData.autoEndMinutes>59) storageData.autoEndMinutes=59;
-            if (storageData.autoEndSeconds>59) storageData.autoEndSeconds=59;
+            storageData.autoEndTime=*time;
+            if (storageData.autoEndTime.hours>23) storageData.autoEndTime.hours=23;
+            if (storageData.autoEndTime.minutes>59) storageData.autoEndTime.minutes=59;
+            if (storageData.autoEndTime.seconds>59) storageData.autoEndTime.seconds=59;
+
             commitStorage(storageData);
-            NetClient.sendString(String("offTime=")+String(storageData.autoEndHours)+String(":")+String(storageData.autoEndMinutes)+String(":")+String(storageData.autoEndSeconds));
-            updateLightMode(false);
-            break;
-        case 5:
-            storageData.lightMode=(uint8_t)*numValue;
-            if (storageData.lightMode<0) storageData.lightMode=0;
-            if (storageData.lightMode>2) storageData.lightMode=2;
-            commitStorage(storageData);
-            NetClient.sendString(String("lightMode=")+String(storageData.lightMode));
+            NetClient.sendString(String("offTime=")+String(storageData.autoEndTime.hours)+String(":")+String(storageData.autoEndTime.minutes)+String(":")+String(storageData.autoEndTime.seconds));
             updateLightMode(false);
             break;
         case 6:
@@ -159,8 +131,8 @@ void packetReceived(uint8_t* data, uint32_t dataLength){
 void onConnected(){
     Serial.println("NetClient Connected");
     NetClient.sendString(String("lightMode=")+String(storageData.lightMode));
-    NetClient.sendString(String("onTime=")+String(storageData.autoStartHours)+String(":")+String(storageData.autoStartMinutes)+String(":")+String(storageData.autoStartSeconds));
-    NetClient.sendString(String("offTime=")+String(storageData.autoEndHours)+String(":")+String(storageData.autoEndMinutes)+String(":")+String(storageData.autoEndSeconds));
+    NetClient.sendString(String("onTime=")+String(storageData.autoStartTime.hours)+String(":")+String(storageData.autoStartTime.minutes)+String(":")+String(storageData.autoStartTime.seconds));
+    NetClient.sendString(String("offTime=")+String(storageData.autoEndTime.hours)+String(":")+String(storageData.autoEndTime.minutes)+String(":")+String(storageData.autoEndTime.seconds));
     updateLightMode(true);
 }
 
@@ -211,10 +183,8 @@ void setup(){
 
     //Setup non volatile storage
     StorageData defaultStorage;
-    defaultStorage.autoStartHours=20;
-    defaultStorage.autoStartMinutes=0;
-    defaultStorage.autoEndHours=22;
-    defaultStorage.autoEndMinutes=0;
+    defaultStorage.autoStartTime={20, 0, 0};
+    defaultStorage.autoEndTime={22, 0, 0};
     defaultStorage.lightMode=2;
     defaultStorage.frame_size=FRAMESIZE_HQVGA;
     defaultStorage.quality=16;
