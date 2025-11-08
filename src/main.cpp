@@ -15,6 +15,9 @@
 const uint8_t dht11Pin = 13;
 const uint8_t lightPin = 14;
 
+bool isLightOn=false;
+bool lastLightOn=false;
+
 DHTesp dht;
 
 const char *WiFiSSID = SECRET_WIFI_SSID;
@@ -38,12 +41,55 @@ StorageData storageData;
 Net NetClient(SECRET_DEVICE_NAME, SECRET_ENCROKEY, SECRET_HOST_ADDRESS, SECRET_HOST_PORT);
 
 
+bool isInTimeWindow(uint8_t currentHour, uint8_t currentMinute, uint8_t currentSecond, uint8_t startHour, uint8_t startMinute, uint8_t startSecond, uint8_t endHour, uint8_t endMinute, uint8_t endSecond){
+    float start=(float)startHour+((float)startMinute/60.0f)+((float)startSecond/3600.0f);
+    float end=(float)endHour+((float)endMinute/60.0f)+((float)endSecond/3600.0f);
+    float current=(float)currentHour+((float)currentMinute/60.0f)+((float)currentSecond/3600.0f);
+
+    if (start<end){
+        if (current>=start && current<end) return true;
+    }
+    if (end<start){
+        if (current>=start) return true;
+        if (current<end) return true;
+    }
+    return false;
+}
+
+void updateLightMode(bool forceSend){
+    if (storageData.lightMode==0){
+        digitalWrite(lightPin, LOW);
+        isLightOn=false;
+    }else if (storageData.lightMode==1){
+        digitalWrite(lightPin, HIGH);
+        isLightOn=true;
+    }else{
+        struct tm timeinfo;
+        if(!getLocalTime(&timeinfo, 0)){
+            digitalWrite(lightPin, LOW);
+            isLightOn=false;
+        }else{
+            bool autoModeStatus=isInTimeWindow( timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec, 
+                storageData.autoStartHours, storageData.autoStartMinutes, storageData.autoStartSeconds,
+                storageData.autoEndHours, storageData.autoEndMinutes, storageData.autoEndSeconds );
+            digitalWrite(lightPin, autoModeStatus);
+            isLightOn=autoModeStatus;
+        }
+    }
+    if (isLightOn!=lastLightOn || forceSend){
+        NetClient.sendString(String("lightOn=")+String((uint8_t)isLightOn));
+        lastLightOn=isLightOn;
+    }
+}
+
+
 void packetReceived(uint8_t* data, uint32_t dataLength){
     sensor_t * s;
     int32_t* numValue=(int32_t*)(data+1);
 
     uint8_t* hours=data+1;
     uint8_t* minutes=data+2;
+    uint8_t* seconds=data+3;
 
 
     switch (data[0]){
@@ -51,43 +97,49 @@ void packetReceived(uint8_t* data, uint32_t dataLength){
             storageData.lightMode=0;
             commitStorage(storageData);
             NetClient.sendString(String("lightMode=")+String(storageData.lightMode));
+            updateLightMode(false);
             break;
         case 1:
             storageData.lightMode=1;
             commitStorage(storageData);
             NetClient.sendString(String("lightMode=")+String(storageData.lightMode));
+            updateLightMode(false);
             break;
         case 2:
             storageData.lightMode=2;
             commitStorage(storageData);
             NetClient.sendString(String("lightMode=")+String(storageData.lightMode));
+            updateLightMode(false);
             break;
         case 3:
             storageData.autoStartHours=*hours;
             storageData.autoStartMinutes=*minutes;
+            storageData.autoStartSeconds=*seconds;
             if (storageData.autoStartHours>23) storageData.autoStartHours=23;
-            if (storageData.autoStartHours<0) storageData.autoStartHours=0;
             if (storageData.autoStartMinutes>59) storageData.autoStartMinutes=59;
-            if (storageData.autoStartMinutes<0) storageData.autoStartMinutes=0;
+            if (storageData.autoStartSeconds>59) storageData.autoStartSeconds=59;
             commitStorage(storageData);
-            NetClient.sendString(String("onTime=")+String(storageData.autoStartHours)+String(":")+String(storageData.autoStartMinutes));
+            NetClient.sendString(String("onTime=")+String(storageData.autoStartHours)+String(":")+String(storageData.autoStartMinutes)+String(":")+String(storageData.autoStartSeconds));
+            updateLightMode(false);
             break;
         case 4:
             storageData.autoEndHours=*hours;
             storageData.autoEndMinutes=*minutes;
+            storageData.autoEndSeconds=*seconds;
             if (storageData.autoEndHours>23) storageData.autoEndHours=23;
-            if (storageData.autoEndHours<0) storageData.autoEndHours=0;
             if (storageData.autoEndMinutes>59) storageData.autoEndMinutes=59;
-            if (storageData.autoEndMinutes<0) storageData.autoEndMinutes=0;
+            if (storageData.autoEndSeconds>59) storageData.autoEndSeconds=59;
             commitStorage(storageData);
-            NetClient.sendString(String("offTime=")+String(storageData.autoEndHours)+String(":")+String(storageData.autoEndMinutes));
+            NetClient.sendString(String("offTime=")+String(storageData.autoEndHours)+String(":")+String(storageData.autoEndMinutes)+String(":")+String(storageData.autoEndSeconds));
+            updateLightMode(false);
             break;
         case 5:
-            storageData.lightMode=(int8_t)*numValue;
+            storageData.lightMode=(uint8_t)*numValue;
             if (storageData.lightMode<0) storageData.lightMode=0;
             if (storageData.lightMode>2) storageData.lightMode=2;
             commitStorage(storageData);
             NetClient.sendString(String("lightMode=")+String(storageData.lightMode));
+            updateLightMode(false);
             break;
         case 6:
             s = esp_camera_sensor_get();
@@ -107,8 +159,9 @@ void packetReceived(uint8_t* data, uint32_t dataLength){
 void onConnected(){
     Serial.println("NetClient Connected");
     NetClient.sendString(String("lightMode=")+String(storageData.lightMode));
-    NetClient.sendString(String("onTime=")+String(storageData.autoStartHours)+String(":")+String(storageData.autoStartMinutes));
-    NetClient.sendString(String("offTime=")+String(storageData.autoEndHours)+String(":")+String(storageData.autoEndMinutes));
+    NetClient.sendString(String("onTime=")+String(storageData.autoStartHours)+String(":")+String(storageData.autoStartMinutes)+String(":")+String(storageData.autoStartSeconds));
+    NetClient.sendString(String("offTime=")+String(storageData.autoEndHours)+String(":")+String(storageData.autoEndMinutes)+String(":")+String(storageData.autoEndSeconds));
+    updateLightMode(true);
 }
 
 void onDisconnected(){
@@ -163,7 +216,7 @@ void setup(){
     defaultStorage.autoEndHours=22;
     defaultStorage.autoEndMinutes=0;
     defaultStorage.lightMode=2;
-    defaultStorage.frame_size=FRAMESIZE_HVGA;
+    defaultStorage.frame_size=FRAMESIZE_HQVGA;
     defaultStorage.quality=16;
     initStorage(&defaultStorage, storageData);
     
@@ -182,41 +235,6 @@ void setup(){
     NetClient.setOnConnected(&onConnected);
     NetClient.setOnDisconnected(&onDisconnected);
 }
-
-
-bool isInTimeWindow(int currentHour, int currentMinute, int startHour, int startMinute, int endHour, int endMinute){
-    float start=(float)startHour+((float)startMinute/60.0f);
-    float end=(float)endHour+((float)endMinute/60.0f);
-    float current=(float)currentHour+((float)currentMinute/60.0f);
-
-    if (start<end){
-        if (current>=start && current<end) return true;
-        return false;
-    }
-    if (end<start){
-        if (current>=start) return true;
-        if (current<end) return true;
-        return false;
-    }
-    return false;
-}
-
-void updateLightMode(){
-    if (storageData.lightMode==0){
-        digitalWrite(lightPin, LOW);
-    }else if (storageData.lightMode==1){
-        digitalWrite(lightPin, HIGH);
-    }else{
-        struct tm timeinfo;
-        if(!getLocalTime(&timeinfo, 0)){
-            digitalWrite(lightPin, LOW);
-        }else{
-            bool autoModeStatus=isInTimeWindow(timeinfo.tm_hour, timeinfo.tm_min, storageData.autoStartHours, storageData.autoStartMinutes, storageData.autoEndHours, storageData.autoEndMinutes);
-            digitalWrite(lightPin, autoModeStatus);
-        }
-    }
-}
-
 
 void loop(){
     static uint32_t lastConnectTime=0;
@@ -273,8 +291,8 @@ void loop(){
         }
     }
 
-    if (isTimeToExecute(lastUpdateLight, 100)){
-        updateLightMode();
+    if (isTimeToExecute(lastUpdateLight, 1000)){
+        updateLightMode(false);
     }
     
     if (currentTime-lastReadyTime > howLongBeforeRestartIfNotConnecting || lastReadyTime>currentTime){//Crude edge case handling, if overflow, just restart
