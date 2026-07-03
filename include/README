@@ -2,7 +2,12 @@ Dont forget to make your secrets.h in this folder, heres a shell of what it shou
 #pragma once
 #define SECRET_WIFI_SSID ""
 #define SECRET_WIFI_PASS ""
-#define SECRET_ENCROKEY ""
 #define SECRET_DEVICE_NAME ""
 #define SECRET_HOST_ADDRESS ""
-#define SECRET_HOST_PORT 4000
+#define SECRET_HOST_PORT 443
+
+// Optional token. Leave empty unless the backend starts enforcing one.
+#define SECRET_DEVICE_TOKEN ""
+
+Non-secret device settings, including WSS_PATH, timezone, pins, send intervals,
+and camera defaults, live in config.h.
